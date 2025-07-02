@@ -131,6 +131,24 @@ pub fn run() {
             devices: Vec::<TRDevice>::new(),
         }));
 
+        // prevent pinch zoom by touchpad
+        #[cfg(target_os = "linux")]
+        {
+            use gtk::glib::ObjectExt;
+            use gtk::GestureZoom;
+            use webkit2gtk::glib::gobject_ffi;
+
+            let window = app.get_webview_window("main").unwrap();
+            window
+                .with_webview(|webview| unsafe {
+                    if let Some(data) = webview.inner().data::<GestureZoom>("wk-view-zoom-gesture")
+                    {
+                        gobject_ffi::g_signal_handlers_destroy(data.as_ptr().cast());
+                    }
+                })
+                .unwrap();
+        }
+
         Ok(())
     });
 

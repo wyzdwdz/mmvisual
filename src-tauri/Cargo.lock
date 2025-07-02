@@ -2031,6 +2031,7 @@ dependencies = [
 name = "mmvisual"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "marvelmind",
  "serde",
  "serde_json",
@@ -2039,6 +2040,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-prevent-default",
  "tauri-plugin-single-instance",
+ "webkit2gtk",
 ]
 
 [[package]]
