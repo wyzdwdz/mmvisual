@@ -2,12 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Konva from "konva";
 import { useEffect, useRef, useState } from "react";
-import { Circle, Layer, Stage } from "react-konva";
+import { Circle, Image, Layer, Stage } from "react-konva";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
+import useImage from "use-image";
 
 interface Device {
   address: number;
@@ -29,6 +30,11 @@ function SensorMarker({
   is_hedge: boolean;
 }) {
   return <Circle x={x} y={y} radius={8} fill={is_hedge ? "red" : "blue"} />;
+}
+
+function FloorPlan({ x, y, scale }: { x: number; y: number; scale: number }) {
+  const [planImage] = useImage("./public/S2 FL2 map.jpg");
+  return <Image x={x} y={y} scaleX={scale} scaleY={scale} image={planImage} />;
 }
 
 function VisualStage({ devices }: { devices: Device[] }) {
@@ -53,6 +59,7 @@ function VisualStage({ devices }: { devices: Device[] }) {
   return (
     <Stage width={window.innerWidth} height={window.innerHeight} ref={refStage}>
       <Layer>
+        <FloorPlan x={-7.136} y={8.429} scale={1} />
         {devices.map((device) => (
           <SensorMarker
             key={device.address}
