@@ -1,36 +1,104 @@
-import * as React from "react";
-import Container from "@mui/material/Container";
-import Typography from "@mui/material/Typography";
-import Box from "@mui/material/Box";
-import Link from "@mui/material/Link";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import Konva from "konva";
+import { useEffect, useRef, useState } from "react";
+import { Circle, Layer, Stage } from "react-konva";
+import "@fontsource/roboto/300.css";
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
+import "./App.css";
 
-function Copyright() {
+interface Device {
+  address: number;
+  is_hedge: boolean;
+  x: number;
+  y: number;
+  q: number;
+}
+
+function SensorMarker({
+  x,
+  y,
+  q,
+  is_hedge,
+}: {
+  x: number;
+  y: number;
+  q: number;
+  is_hedge: boolean;
+}) {
+  return <Circle x={x} y={y} radius={8} fill={is_hedge ? "red" : "blue"} />;
+}
+
+function VisualStage({ devices }: { devices: Device[] }) {
+  const refStage = useRef<Konva.Stage>(null);
+  useEffect(() => {
+    const stage = refStage.current;
+
+    const handleResize = () => {
+      stage?.setSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
   return (
-    <Typography
-      variant="body2"
-      align="center"
-      sx={{
-        color: "text.secondary",
-      }}
-    >
-      {"Copyright © "}
-      <Link color="inherit" href="https://mui.com/">
-        Your Website
-      </Link>{" "}
-      {new Date().getFullYear()}.
-    </Typography>
+    <Stage width={window.innerWidth} height={window.innerHeight} ref={refStage}>
+      <Layer>
+        {devices.map((device) => (
+          <SensorMarker
+            key={device.address}
+            x={device.x}
+            y={device.y}
+            q={device.q}
+            is_hedge={device.is_hedge}
+          />
+        ))}
+      </Layer>
+    </Stage>
   );
 }
 
 export default function App() {
+  const [devices, setDevices] = useState<Device[]>([]);
+
+  useEffect(() => {
+    const unlisten = listen<string>("log-message", (event) => {
+      console.log(`Log: ${event.payload}`);
+    });
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  useEffect(() => {
+    invoke("mmstart");
+  }, []);
+
+  useEffect(() => {
+    setInterval(() => {
+      invoke<Device[]>("read_devices").then((devices) => {
+        setDevices(devices);
+      });
+    }, 50);
+  }, []);
+
   return (
-    <Container maxWidth="sm">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Material UI Vite example in TypeScript
-        </Typography>
-        <Copyright />
-      </Box>
-    </Container>
+    <>
+      <VisualStage devices={devices} />
+    </>
   );
 }
+
+// shift_x_m = -7.136
+// shift_y_m = 8.429
+// scale_pixels_per_m = 54.112
