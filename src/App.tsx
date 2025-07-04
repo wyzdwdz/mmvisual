@@ -1,17 +1,56 @@
-import { FormControlLabel, Switch } from "@mui/material";
+import { FormControlLabel, Menu, MenuItem, Switch } from "@mui/material";
 import { red } from "@mui/material/colors";
 import { alpha, styled } from "@mui/material/styles";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import Konva from "konva";
+import { throttle } from "lodash";
 import { SyntheticEvent, useEffect, useRef, useState } from "react";
 import { Circle, Group, Image, Layer, Stage, Text } from "react-konva";
+import { Html } from "react-konva-utils";
 import useImage from "use-image";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
+import Konva from "konva";
+
+const floorPlan_scene1 = {
+  x: -7.136,
+  y: -8.429,
+  scale_pixels_per_m: 54.112,
+  path: "./S2 FL2 map.jpg",
+};
+const devicesInit_scene1 = Array<Device>(
+  {
+    address: 1,
+    is_hedge: false,
+    x: 0.003,
+    y: 0,
+    q: 0,
+  },
+  {
+    address: 2,
+    is_hedge: false,
+    x: 3.43,
+    y: 0,
+    q: 0,
+  },
+  {
+    address: 3,
+    is_hedge: false,
+    x: -0.07,
+    y: -5.63,
+    q: 0,
+  },
+  {
+    address: 5,
+    is_hedge: false,
+    x: -0.07,
+    y: -1.506,
+    q: 0,
+  },
+);
 
 interface Device {
   address: number;
@@ -73,29 +112,69 @@ function FloorPlan({
   y: number;
   scale_pixels_per_m: number;
 }) {
-  const [planImage] = useImage("./S2 FL2 map.jpg");
-  if (!planImage) {
-    return;
-  }
+  const [contextMenu, setContextMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+  } | null>(null);
+
+  const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    e.evt.preventDefault();
+
+    setContextMenu(
+      contextMenu === null
+        ? {
+            mouseX: e.evt.clientX + 2,
+            mouseY: e.evt.clientY - 6,
+          }
+        : null,
+    );
+  };
+
+  const handleMenuClose = () => {
+    setContextMenu(null);
+  };
+
+  const [planImage] = useImage(floorPlan_scene1.path);
+  if (!planImage) return;
 
   return (
-    <Image
-      x={x}
-      y={y}
-      width={planImage.width / scale_pixels_per_m}
-      height={planImage.height / scale_pixels_per_m}
-      image={planImage}
-    />
+    <>
+      <Image
+        x={x}
+        y={y}
+        width={planImage.width / scale_pixels_per_m}
+        height={planImage.height / scale_pixels_per_m}
+        image={planImage}
+        onContextMenu={handleContextMenu}
+      />
+      {/* <Html>
+        <Menu
+          open={contextMenu !== null}
+          onClose={handleMenuClose}
+          anchorReference="anchorPosition"
+          anchorPosition={
+            contextMenu !== null
+              ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+              : undefined
+          }
+          onContextMenu={(e) => e.preventDefault()}
+          onMouseDownCapture={(e) => {
+            if (e.button === 2) {
+              handleMenuClose();
+            }
+          }}
+          transitionDuration={0}
+        >
+          <MenuItem onClick={handleMenuClose}>Hello</MenuItem>
+          <MenuItem onClick={handleMenuClose}>World</MenuItem>
+        </Menu>
+      </Html> */}
+    </>
   );
 }
 
 function VisualStage({ devices }: { devices: Device[] }) {
   const refStage = useRef<Konva.Stage>(null);
-  const refLayer = useRef<Konva.Layer>(null);
-
-  useEffect(() => {
-    refLayer.current?.cache();
-  }, []);
 
   useEffect(() => {
     const stage = refStage.current;
@@ -116,21 +195,33 @@ function VisualStage({ devices }: { devices: Device[] }) {
 
   useEffect(() => {
     const stage = refStage.current;
-    if (!stage) {
-      return;
-    }
+    if (!stage) return;
 
-    const scale = stage.scaleX();
-
-    const handleWheel = (e: WheelEvent) => {
+    const handleWheel = throttle((e: WheelEvent) => {
       e.preventDefault();
-      const direction = e.deltaY > 0 ? -1 : 1;
-      const newScale = Math.min(Math.max(scale + direction * 1, 10), 100);
+      const scaleBy = 1.1;
+      const oldScale = stage.scaleX();
+      const pointer = stage.getPointerPosition();
+      if (!pointer) return;
+
+      const newScale = Math.max(
+        Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 150),
+        10,
+      );
+
+      stage.position({
+        x: pointer.x - ((pointer.x - stage.x()) * newScale) / oldScale,
+        y: pointer.y - ((pointer.y - stage.y()) * newScale) / oldScale,
+      });
       stage.scaleX(newScale);
       stage.scaleY(newScale);
-    };
+    }, 100);
 
-    document.addEventListener("wheel", handleWheel);
+    document.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      document.removeEventListener("wheel", handleWheel);
+    };
   });
 
   return (
@@ -139,13 +230,17 @@ function VisualStage({ devices }: { devices: Device[] }) {
       height={window.innerHeight}
       x={window.innerWidth / 2}
       y={window.innerHeight / 2}
-      ref={refStage}
       scaleX={70}
       scaleY={70}
       draggable
+      ref={refStage}
     >
       <Layer>
-        <FloorPlan x={-7.136} y={-8.429} scale_pixels_per_m={54.112} />
+        <FloorPlan
+          x={floorPlan_scene1.x}
+          y={floorPlan_scene1.y}
+          scale_pixels_per_m={floorPlan_scene1.scale_pixels_per_m}
+        />
         {devices.map((device) => (
           <SensorMarker
             key={device.address}
@@ -161,36 +256,7 @@ function VisualStage({ devices }: { devices: Device[] }) {
 }
 
 export default function App() {
-  const devicesInit = Array<Device>(
-    {
-      address: 1,
-      is_hedge: false,
-      x: 0.003,
-      y: 0,
-      q: 0,
-    },
-    {
-      address: 2,
-      is_hedge: false,
-      x: 3.43,
-      y: 0,
-      q: 0,
-    },
-    {
-      address: 3,
-      is_hedge: false,
-      x: -0.07,
-      y: -5.63,
-      q: 0,
-    },
-    {
-      address: 5,
-      is_hedge: false,
-      x: -0.07,
-      y: -1.506,
-      q: 0,
-    },
-  );
+  const devicesInit = devicesInit_scene1;
   const [devices, setDevices] = useState<Device[]>(devicesInit);
 
   useEffect(() => {
@@ -213,9 +279,7 @@ export default function App() {
         setDevices((prevDevices) => {
           const newDevices = [...prevDevices];
           tr_devices.forEach((tr_device) => {
-            if (tr_device.q < 50) {
-              return;
-            }
+            if (tr_device.q < 50) return;
 
             const existingIndex = newDevices.findIndex(
               (d) => d.address === tr_device.address,
@@ -240,21 +304,25 @@ export default function App() {
     }, 10);
   }, []);
 
-  const buttonStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "20px",
-    right: "20px",
-    zIndex: 10,
-  };
-
   const changeRecord = (_event: SyntheticEvent, checked: boolean) => {
-    console.log("change record", checked);
+    if (checked) {
+      invoke("start_record");
+    } else {
+      invoke("stop_record");
+    }
   };
 
   return (
     <>
       <VisualStage devices={devices} />
-      <div style={buttonStyle}>
+      <div
+        style={{
+          position: "absolute",
+          top: "20px",
+          right: "20px",
+          zIndex: 10,
+        }}
+      >
         <FormControlLabel
           control={<RedSwitch />}
           label="Record"
