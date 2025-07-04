@@ -1,7 +1,15 @@
-use std::{sync::Mutex, thread::sleep, time::Duration};
+use std::{
+    fs::File,
+    io::Write,
+    sync::Mutex,
+    thread::sleep,
+    time::{Duration, SystemTime},
+};
 
 use marvelmind as mm;
 use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
+
+const LOG_PATH: &str = "log.csv";
 
 macro_rules! unwrap_or_return {
     ( $e:expr, $app:expr ) => {
@@ -28,6 +36,7 @@ struct TRDevice {
 struct AppState {
     is_mmrunning: bool,
     devices: Vec<TRDevice>,
+    savefile: Option<File>,
 }
 
 fn mmrun(app: AppHandle) {
@@ -39,7 +48,7 @@ fn mmrun(app: AppHandle) {
     let mut state_lock = state.lock().unwrap();
 
     for device in device_list.devices() {
-        state_lock.devices.push(TRDevice {
+        let tr_device = TRDevice {
             address: device.address(),
             is_hedge: matches!(
                 device.dtype(),
@@ -51,7 +60,34 @@ fn mmrun(app: AppHandle) {
             x: device.x() as f64 / 1000.0,
             y: device.y() as f64 / 1000.0,
             q: device.q(),
-        });
+        };
+
+        state_lock.devices.push(tr_device.clone());
+
+        if let Some(savefile) = &mut state_lock.savefile {
+            if !tr_device.is_hedge {
+                continue;
+            }
+
+            savefile
+                .write(
+                    format!(
+                        "{},{},{},{},{},{}\n",
+                        device.address(),
+                        device.x(),
+                        device.y(),
+                        device.z(),
+                        device.q(),
+                        device
+                            .update_time()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis(),
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+        }
     }
 
     drop(state_lock);
@@ -110,6 +146,25 @@ fn read_devices(app: AppHandle) -> Vec<TRDevice> {
     state.devices.clone()
 }
 
+#[tauri::command]
+fn start_record(app: AppHandle) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+
+    state.savefile = Some(File::create(LOG_PATH).unwrap());
+    if let Some(savefile) = &mut state.savefile {
+        savefile.write("address,x,y,z,q,t\n".as_bytes()).unwrap();
+    }
+}
+
+#[tauri::command]
+fn stop_record(app: AppHandle) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().unwrap();
+
+    state.savefile = None;
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -129,6 +184,7 @@ pub fn run() {
         app.manage(Mutex::new(AppState {
             is_mmrunning: false,
             devices: Vec::<TRDevice>::new(),
+            savefile: None,
         }));
 
         // prevent pinch zoom by touchpad
@@ -152,7 +208,13 @@ pub fn run() {
         Ok(())
     });
 
-    builder = builder.invoke_handler(tauri::generate_handler![mmstart, send_log, read_devices]);
+    builder = builder.invoke_handler(tauri::generate_handler![
+        mmstart,
+        send_log,
+        read_devices,
+        start_record,
+        stop_record
+    ]);
 
     builder
         .run(tauri::generate_context!())
