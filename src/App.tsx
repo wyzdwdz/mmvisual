@@ -3,6 +3,7 @@ import { red } from "@mui/material/colors";
 import { alpha, styled } from "@mui/material/styles";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import Konva from "konva";
 import { throttle } from "lodash";
 import { SyntheticEvent, useEffect, useRef, useState } from "react";
 import { Circle, Group, Image, Layer, Stage, Text } from "react-konva";
@@ -13,7 +14,6 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
-import Konva from "konva";
 
 const floorPlan_scene1 = {
   x: -7.136,
