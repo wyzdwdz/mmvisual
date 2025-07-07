@@ -1,3 +1,9 @@
+// Copyright 2025 wyzdwdz <wyzdwdz@gmail.com>
+//
+// Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to
+// those terms.
+
 use std::{
     fs::File,
     io::Write,
