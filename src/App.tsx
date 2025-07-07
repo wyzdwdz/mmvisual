@@ -1,3 +1,9 @@
+// Copyright 2025 wyzdwdz <wyzdwdz@gmail.com>
+//
+// Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
+// This file may not be copied, modified, or distributed except according to
+// those terms.
+
 import { FormControlLabel, Menu, MenuItem, Switch } from "@mui/material";
 import { red } from "@mui/material/colors";
 import { alpha, styled } from "@mui/material/styles";
