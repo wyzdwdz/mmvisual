@@ -62,35 +62,12 @@ fn mmrun(app: AppHandle) {
             q: device.q(),
         };
 
-        state_lock.devices.push(tr_device.clone());
-
-        if let Some(savefile) = &mut state_lock.savefile {
-            if !tr_device.is_hedge {
-                continue;
-            }
-
-            savefile
-                .write(
-                    format!(
-                        "{},{},{},{},{},{}\n",
-                        device.address(),
-                        device.x(),
-                        device.y(),
-                        device.z(),
-                        device.q(),
-                        device
-                            .update_time()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis(),
-                    )
-                    .as_bytes(),
-                )
-                .unwrap();
-        }
+        state_lock.devices.push(tr_device);
     }
 
     drop(state_lock);
+
+    let mut prev_time = SystemTime::UNIX_EPOCH;
 
     loop {
         unwrap_or_return!(device_list.update_last_locations(), app.clone());
@@ -108,6 +85,43 @@ fn mmrun(app: AppHandle) {
                     tr_device.y = device.y() as f64 / 1000.0;
                     tr_device.q = device.q();
                 };
+
+                if let Some(savefile) = &mut state_lock.savefile {
+                    if !matches!(
+                        device.dtype(),
+                        mm::DeviceType::SuperBeaconHedgedog
+                            | mm::DeviceType::BeaconHwV45Hedgehog
+                            | mm::DeviceType::BeaconHwV49Hedgehog
+                            | mm::DeviceType::IndustrialSuperBeaconHedgedog
+                    ) {
+                        continue;
+                    }
+
+                    if device.update_time() <= prev_time {
+                        continue;
+                    }
+
+                    savefile
+                        .write(
+                            format!(
+                                "{},{},{},{},{},{}\n",
+                                device.address(),
+                                device.x(),
+                                device.y(),
+                                device.z(),
+                                device.q(),
+                                device
+                                    .update_time()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis(),
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+
+                    prev_time = device.update_time();
+                }
             }
         }
 

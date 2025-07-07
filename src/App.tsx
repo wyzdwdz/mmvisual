@@ -17,7 +17,7 @@ import "./App.css";
 
 const floorPlan_scene1 = {
   x: -7.136,
-  y: -8.429,
+  y: 8.429,
   scale_pixels_per_m: 54.112,
   path: "./S2 FL2 map.jpg",
 };
@@ -48,6 +48,51 @@ const devicesInit_scene1 = Array<Device>(
     is_hedge: false,
     x: -0.07,
     y: -1.506,
+    q: 0,
+  },
+);
+
+interface Device {
+  address: number;
+  is_hedge: boolean;
+  x: number;
+  y: number;
+  q: number;
+}
+
+const floorPlan_scene2 = {
+  x: -20.934,
+  y: 11.246,
+  scale_pixels_per_m: 120.971,
+  path: "./FL2O.jpg",
+};
+const devicesInit_scene2 = Array<Device>(
+  {
+    address: 1,
+    is_hedge: false,
+    x: 0,
+    y: 0,
+    q: 0,
+  },
+  {
+    address: 2,
+    is_hedge: false,
+    x: -7.813,
+    y: 0.408,
+    q: 0,
+  },
+  {
+    address: 3,
+    is_hedge: false,
+    x: 4.906,
+    y: -5.470,
+    q: 0,
+  },
+  {
+    address: 5,
+    is_hedge: false,
+    x: 5.05,
+    y: -1.37,
     q: 0,
   },
 );
@@ -134,7 +179,7 @@ function FloorPlan({
     setContextMenu(null);
   };
 
-  const [planImage] = useImage(floorPlan_scene1.path);
+  const [planImage] = useImage(floorPlan_scene2.path);
   if (!planImage) return;
 
   return (
@@ -237,9 +282,9 @@ function VisualStage({ devices }: { devices: Device[] }) {
     >
       <Layer>
         <FloorPlan
-          x={floorPlan_scene1.x}
-          y={floorPlan_scene1.y}
-          scale_pixels_per_m={floorPlan_scene1.scale_pixels_per_m}
+          x={floorPlan_scene2.x}
+          y={-floorPlan_scene2.y}
+          scale_pixels_per_m={floorPlan_scene2.scale_pixels_per_m}
         />
         {devices.map((device) => (
           <SensorMarker
@@ -256,7 +301,7 @@ function VisualStage({ devices }: { devices: Device[] }) {
 }
 
 export default function App() {
-  const devicesInit = devicesInit_scene1;
+  const devicesInit = devicesInit_scene2;
   const [devices, setDevices] = useState<Device[]>(devicesInit);
 
   useEffect(() => {
