@@ -9,99 +9,33 @@ import { red } from "@mui/material/colors";
 import { alpha, styled } from "@mui/material/styles";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Konva from "konva";
 import { throttle } from "lodash";
+import mime from "mime";
 import { SyntheticEvent, useEffect, useRef, useState } from "react";
-import { Circle, Group, Image, Layer, Stage, Text } from "react-konva";
+import {
+  Circle,
+  Group,
+  Image as KonvaImage,
+  Layer,
+  Stage,
+  Text,
+} from "react-konva";
 import { Html } from "react-konva-utils";
-import useImage from "use-image";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
 
-const floorPlan_scene1 = {
-  x: -7.136,
-  y: 8.429,
-  scale_pixels_per_m: 54.112,
-  path: "./S2 FL2 map.jpg",
-};
-const devicesInit_scene1 = Array<Device>(
-  {
-    address: 1,
-    is_hedge: false,
-    x: 0.003,
-    y: 0,
-    q: 0,
-  },
-  {
-    address: 2,
-    is_hedge: false,
-    x: 3.43,
-    y: 0,
-    q: 0,
-  },
-  {
-    address: 3,
-    is_hedge: false,
-    x: -0.07,
-    y: -5.63,
-    q: 0,
-  },
-  {
-    address: 5,
-    is_hedge: false,
-    x: -0.07,
-    y: -1.506,
-    q: 0,
-  },
-);
-
-interface Device {
-  address: number;
-  is_hedge: boolean;
+interface Plan {
   x: number;
   y: number;
-  q: number;
+  scale_pixels_per_m: number;
+  data: Uint8Array;
+  ext: string;
 }
-
-const floorPlan_scene2 = {
-  x: -20.934,
-  y: 11.246,
-  scale_pixels_per_m: 120.971,
-  path: "./FL2O.jpg",
-};
-const devicesInit_scene2 = Array<Device>(
-  {
-    address: 1,
-    is_hedge: false,
-    x: 0,
-    y: 0,
-    q: 0,
-  },
-  {
-    address: 2,
-    is_hedge: false,
-    x: -7.813,
-    y: 0.408,
-    q: 0,
-  },
-  {
-    address: 3,
-    is_hedge: false,
-    x: 4.906,
-    y: -5.470,
-    q: 0,
-  },
-  {
-    address: 5,
-    is_hedge: false,
-    x: 5.05,
-    y: -1.37,
-    q: 0,
-  },
-);
 
 interface Device {
   address: number;
@@ -158,15 +92,21 @@ function FloorPlan({
   x,
   y,
   scale_pixels_per_m,
+  data,
+  ext,
 }: {
   x: number;
   y: number;
   scale_pixels_per_m: number;
+  data: Uint8Array;
+  ext: string;
 }) {
   const [contextMenu, setContextMenu] = useState<{
     mouseX: number;
     mouseY: number;
   } | null>(null);
+
+  const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null);
 
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
@@ -181,23 +121,36 @@ function FloorPlan({
     );
   };
 
-  const handleMenuClose = () => {
-    setContextMenu(null);
-  };
+  useEffect(() => {
+    if (!data || data.length === 0) return;
 
-  const [planImage] = useImage(floorPlan_scene2.path);
-  if (!planImage) return;
+    const mime_type = mime.getType(ext);
+    if (!mime_type) return;
+
+    const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+    const blob = new Blob([buffer], { type: mime_type });
+    const imageUrl = URL.createObjectURL(blob);
+
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      setPlanImage(img);
+    };
+  }, [data, ext]);
 
   return (
     <>
-      <Image
-        x={x}
-        y={y}
-        width={planImage.width / scale_pixels_per_m}
-        height={planImage.height / scale_pixels_per_m}
-        image={planImage}
-        onContextMenu={handleContextMenu}
-      />
+      {planImage && (
+        <KonvaImage
+          x={x}
+          y={y}
+          width={planImage.width / scale_pixels_per_m}
+          height={planImage.height / scale_pixels_per_m}
+          image={planImage}
+          onContextMenu={handleContextMenu}
+        />
+      )}
       {/* <Html>
         <Menu
           open={contextMenu !== null}
@@ -224,7 +177,7 @@ function FloorPlan({
   );
 }
 
-function VisualStage({ devices }: { devices: Device[] }) {
+function VisualStage({ devices, plan }: { devices: Device[]; plan: Plan }) {
   const refStage = useRef<Konva.Stage>(null);
 
   useEffect(() => {
@@ -288,9 +241,11 @@ function VisualStage({ devices }: { devices: Device[] }) {
     >
       <Layer>
         <FloorPlan
-          x={floorPlan_scene2.x}
-          y={-floorPlan_scene2.y}
-          scale_pixels_per_m={floorPlan_scene2.scale_pixels_per_m}
+          x={plan.x}
+          y={-plan.y}
+          scale_pixels_per_m={plan.scale_pixels_per_m}
+          data={plan.data}
+          ext={plan.ext}
         />
         {devices.map((device) => (
           <SensorMarker
@@ -307,8 +262,8 @@ function VisualStage({ devices }: { devices: Device[] }) {
 }
 
 export default function App() {
-  const devicesInit = devicesInit_scene2;
-  const [devices, setDevices] = useState<Device[]>(devicesInit);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [plan, setPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
     const unlisten = listen<string>("log-message", (event) => {
@@ -321,7 +276,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    invoke("mmstart");
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type !== "drop") {
+        return;
+      }
+
+      if (!event.payload.paths[0]) {
+        return;
+      }
+
+      invoke<[Device[], Plan | null]>("parse_map", {
+        path: event.payload.paths[0],
+      }).then(([tr_devices, tr_plan]) => {
+        setDevices(tr_devices);
+        setPlan(tr_plan);
+      });
+
+      invoke("mmstart");
+    });
+
+    return () => {
+      unlisten.then();
+    };
   }, []);
 
   useEffect(() => {
@@ -346,7 +322,6 @@ export default function App() {
               };
             } else {
               newDevices.push({ ...tr_device });
-              console.log("Added new device", tr_device.address);
             }
           });
           return newDevices;
@@ -365,7 +340,9 @@ export default function App() {
 
   return (
     <>
-      <VisualStage devices={devices} />
+      {devices.length > 0 && plan && (
+        <VisualStage devices={devices} plan={plan} />
+      )}
       <div
         style={{
           position: "absolute",

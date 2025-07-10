@@ -7,11 +7,14 @@
 use std::{
     fs::File,
     io::Write,
+    path::PathBuf,
     sync::Mutex,
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
+use anyhow::{Context, Error, Result};
+use ini::Ini;
 use marvelmind as mm;
 use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
 
@@ -29,13 +32,22 @@ macro_rules! unwrap_or_return {
     };
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct TRDevice {
     address: u8,
     is_hedge: bool,
     x: f64,
     y: f64,
     q: u8,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct TRPlan {
+    x: f64,
+    y: f64,
+    scale_pixels_per_m: f64,
+    data: Vec<u8>,
+    ext: String,
 }
 
 #[derive(Debug)]
@@ -167,6 +179,16 @@ fn read_devices(app: AppHandle) -> Vec<TRDevice> {
 }
 
 #[tauri::command]
+fn parse_map(app: AppHandle, path: String) -> (Vec<TRDevice>, Option<TRPlan>) {
+    let Ok((devices, plan)) = parse_ini(path) else {
+        send_log(app, "failed to parse ini map file".into());
+        return (Vec::<TRDevice>::new(), None);
+    };
+
+    (devices, Some(plan))
+}
+
+#[tauri::command]
 fn start_record(app: AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
@@ -183,6 +205,87 @@ fn stop_record(app: AppHandle) {
     let mut state = state.lock().unwrap();
 
     state.savefile = None;
+}
+
+fn parse_ini(path: String) -> Result<(Vec<TRDevice>, TRPlan), Error> {
+    let mut plan = TRPlan::default();
+    let ini = Ini::load_from_file_noescape(path)?;
+
+    let floorplan = ini
+        .section(Some("floorplan"))
+        .context("no section: [floorplan]")?;
+
+    plan.x = floorplan
+        .get("shift_x_m")
+        .context("no value: shift_x_m")?
+        .parse::<f64>()?;
+    plan.y = floorplan
+        .get("shift_y_m")
+        .context("no value: shift_y_m")?
+        .parse::<f64>()?;
+    plan.scale_pixels_per_m = floorplan
+        .get("scale_pixels_per_m")
+        .context("no value: scale_pixels_per_m")?
+        .parse::<f64>()?;
+
+    let img_path = floorplan
+        .get("Floor1_FILE")
+        .context("no value: Floor1_FILE")?;
+    plan.data = std::fs::read(img_path)?;
+    plan.ext = PathBuf::from(img_path)
+        .extension()
+        .context("failed to read extension")?
+        .to_str()
+        .context("failed to convert extension")?
+        .into();
+
+    let mut devices = Vec::<TRDevice>::new();
+
+    let tr_devices = ini
+        .section(Some("devices"))
+        .context("no section: [devices]")?;
+
+    for (key, value) in tr_devices {
+        if !key.starts_with("beacon") {
+            continue;
+        }
+
+        if value.parse::<u32>()? != 1 {
+            continue;
+        }
+
+        let index = &key[6..];
+
+        let beacon = ini
+            .section(Some(format!("beacon {}", index)))
+            .context(format!("no section: [beacon {}]", index))?;
+
+        if beacon
+            .get("Hedgehog_mode")
+            .context("no value: Hedgehog_mode")?
+            != "0"
+        {
+            continue;
+        }
+
+        let device = TRDevice {
+            x: beacon
+                .get("Position_X")
+                .context("no value: Position_X")?
+                .parse::<f64>()?,
+            y: beacon
+                .get("Position_Y")
+                .context("no value: Position_Y")?
+                .parse::<f64>()?,
+            address: index.parse::<u8>()?,
+            is_hedge: false,
+            q: 0,
+        };
+
+        devices.push(device);
+    }
+
+    Ok((devices, plan))
 }
 
 pub fn run() {
@@ -233,7 +336,8 @@ pub fn run() {
         send_log,
         read_devices,
         start_record,
-        stop_record
+        stop_record,
+        parse_map
     ]);
 
     builder

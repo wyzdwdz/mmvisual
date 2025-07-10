@@ -38,6 +38,9 @@ importers:
       lodash:
         specifier: ^4.17.21
         version: 4.17.21
+      mime:
+        specifier: ^4.0.7
+        version: 4.0.7
       react:
         specifier: ^19.1.0
         version: 19.1.0
@@ -50,9 +53,6 @@ importers:
       react-konva-utils:
         specifier: ^1.1.0
         version: 1.1.0(konva@9.3.20)(react-dom@19.1.0(react@19.1.0))(react-konva@19.0.6(@types/react@19.1.8)(konva@9.3.20)(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)
-      use-image:
-        specifier: ^1.1.4
-        version: 1.1.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
     devDependencies:
       '@eslint/js':
         specifier: ^9.29.0
@@ -1512,6 +1512,11 @@ packages:
   micromatch@4.0.8:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
+
+  mime@4.0.7:
+    resolution: {integrity: sha512-2OfDPL+e03E0LrXaGYOtTFIYhiuzep94NSsuhrNULq+stylcJedcHdzHtz0atMUuGwJfFYs0YL5xeC/Ca2x0eQ==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   minimatch@3.1.2:
     resolution: {integrity: sha512-J7p63hRiAjw1NDEww1W7i37+ByIrOWO5XQQAzZ3VOcL0PNybwpfmV/N05zFAzwQ9USyEcX6t3UO+K5aqBQOIHw==}
@@ -3501,6 +3506,8 @@ snapshots:
     dependencies:
       braces: 3.0.3
       picomatch: 2.3.1
+
+  mime@4.0.7: {}
 
   minimatch@3.1.2:
     dependencies:
