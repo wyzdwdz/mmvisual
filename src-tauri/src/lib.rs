@@ -228,16 +228,22 @@ fn parse_ini(path: String) -> Result<(Vec<TRDevice>, TRPlan), Error> {
         .context("no value: scale_pixels_per_m")?
         .parse::<f64>()?;
 
-    let img_path = floorplan
-        .get("Floor1_FILE")
-        .context("no value: Floor1_FILE")?;
-    plan.data = std::fs::read(img_path)?;
-    plan.ext = PathBuf::from(img_path)
-        .extension()
-        .context("failed to read extension")?
-        .to_str()
-        .context("failed to convert extension")?
-        .into();
+    for (key, value) in floorplan {
+        if key.starts_with("Floor") {
+            plan.data = std::fs::read(value)?;
+            plan.ext = PathBuf::from(value)
+                .extension()
+                .context("failed to read extension")?
+                .to_str()
+                .context("failed to convert extension")?
+                .into();
+
+            break;
+        }
+    }
+    if plan.data.is_empty() {
+        return Err(Error::msg("no value: FloorX_FILE"));
+    }
 
     let mut devices = Vec::<TRDevice>::new();
 
