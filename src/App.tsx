@@ -114,28 +114,43 @@ function FloorPlan({
     setContextMenu(
       contextMenu === null
         ? {
-            mouseX: e.evt.clientX + 2,
-            mouseY: e.evt.clientY - 6,
-          }
+          mouseX: e.evt.clientX + 2,
+          mouseY: e.evt.clientY - 6,
+        }
         : null,
     );
   };
 
   useEffect(() => {
-    if (!data || data.length === 0) return;
+    if (!data?.length) return;
 
     const mime_type = mime.getType(ext);
     if (!mime_type) return;
 
-    const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const createImage = async () => {
+      const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
+      const blob = new Blob([buffer], { type: mime_type });
+      const imageUrl = URL.createObjectURL(blob);
 
-    const blob = new Blob([buffer], { type: mime_type });
-    const imageUrl = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = imageUrl;
+        await img.decode();
 
-    const img = new Image();
-    img.src = imageUrl;
-    img.onload = () => {
-      setPlanImage(img);
+        setPlanImage(img);
+      } catch (error) {
+        console.error("Image loading failed", error);
+      } finally {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+
+    createImage();
+
+    return () => {
+      if (planImage) {
+        URL.revokeObjectURL(planImage.src);
+      }
     };
   }, [data, ext]);
 
@@ -201,32 +216,37 @@ function VisualStage({ devices, plan }: { devices: Device[]; plan: Plan }) {
     const stage = refStage.current;
     if (!stage) return;
 
-    const handleWheel = throttle((e: WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+
       const scaleBy = 1.1;
-      const oldScale = stage.scaleX();
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
 
-      const newScale = Math.max(
-        Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 150),
-        10,
-      );
+      requestAnimationFrame(() => {
+        const oldScale = stage.scaleX();
+        const newScale = Math.max(
+          Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 150),
+          10
+        );
 
-      stage.position({
-        x: pointer.x - ((pointer.x - stage.x()) * newScale) / oldScale,
-        y: pointer.y - ((pointer.y - stage.y()) * newScale) / oldScale,
+        stage.position({
+          x: pointer.x - ((pointer.x - stage.x()) * newScale) / oldScale,
+          y: pointer.y - ((pointer.y - stage.y()) * newScale) / oldScale,
+        });
+        stage.scale({ x: newScale, y: newScale });
+        stage.batchDraw();
       });
-      stage.scaleX(newScale);
-      stage.scaleY(newScale);
-    }, 100);
+    };
 
-    document.addEventListener("wheel", handleWheel, { passive: false });
+    const throttledWheel = throttle(handleWheel, 50, { leading: true, trailing: false });
+
+    document.addEventListener("wheel", throttledWheel, { passive: false });
 
     return () => {
-      document.removeEventListener("wheel", handleWheel);
+      document.removeEventListener("wheel", throttledWheel);
     };
-  });
+  }, []);
 
   return (
     <Stage
@@ -249,11 +269,8 @@ function VisualStage({ devices, plan }: { devices: Device[]; plan: Plan }) {
         />
         {devices.map((device) => (
           <SensorMarker
-            key={device.address}
-            x={device.x}
-            y={device.y}
-            q={device.q}
-            is_hedge={device.is_hedge}
+            key={`${device.address}-${device.x.toFixed(2)}-${device.y.toFixed(2)}`}
+            {...device}
           />
         ))}
       </Layer>
@@ -301,33 +318,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setInterval(() => {
+    const intervalId = setInterval(() => {
       invoke<Device[]>("read_devices").then((tr_devices) => {
         setDevices((prevDevices) => {
           const newDevices = [...prevDevices];
+          let hasChanged = false;
+
           tr_devices.forEach((tr_device) => {
             if (tr_device.q < 50) return;
 
-            const existingIndex = newDevices.findIndex(
+            const index = prevDevices.findIndex(
               (d) => d.address === tr_device.address,
             );
 
-            if (existingIndex !== -1) {
-              newDevices[existingIndex] = {
-                ...newDevices[existingIndex],
-                is_hedge: tr_device.is_hedge,
-                x: tr_device.x,
-                y: tr_device.y,
-                q: tr_device.q,
-              };
+            if (index !== -1) {
+              const existing = prevDevices[index];
+
+              const deviceChanged = (
+                Math.abs(existing.x - tr_device.x) > 0.01 ||
+                Math.abs(existing.y - tr_device.y) > 0.01 ||
+                existing.q !== tr_device.q ||
+                existing.is_hedge !== tr_device.is_hedge
+              );
+              if (deviceChanged) {
+                newDevices[index] = tr_device;
+                hasChanged = true;
+              }
             } else {
-              newDevices.push({ ...tr_device });
+              newDevices.push(tr_device);
+              hasChanged = true;
             }
           });
-          return newDevices;
+
+          return hasChanged ? newDevices : prevDevices;
         });
       });
     }, 10);
+
+    return () => {
+      clearInterval(intervalId);
+    }
   }, []);
 
   const changeRecord = (_event: SyntheticEvent, checked: boolean) => {
