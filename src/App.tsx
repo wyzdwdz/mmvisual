@@ -4,30 +4,24 @@
 // This file may not be copied, modified, or distributed except according to
 // those terms.
 
-import { FormControlLabel, Menu, MenuItem, Switch } from "@mui/material";
+import { FormControlLabel, Switch } from "@mui/material";
 import { red } from "@mui/material/colors";
 import { alpha, styled } from "@mui/material/styles";
+import { Application, extend, useApplication } from "@pixi/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import Konva from "konva";
 import { throttle } from "lodash";
 import mime from "mime";
+import { Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { SyntheticEvent, useEffect, useRef, useState } from "react";
-import {
-  Circle,
-  Group,
-  Image as KonvaImage,
-  Layer,
-  Stage,
-  Text,
-} from "react-konva";
-import { Html } from "react-konva-utils";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
+
+const GLOBAL_SCALE = 70;
 
 interface Plan {
   x: number;
@@ -57,6 +51,13 @@ const RedSwitch = styled(Switch)(({ theme }) => ({
   },
 }));
 
+extend({
+  Container,
+  Sprite,
+  Text,
+  Graphics,
+});
+
 function SensorMarker({
   x,
   y,
@@ -68,26 +69,28 @@ function SensorMarker({
   q: number;
   is_hedge: boolean;
 }) {
+  const textStyle = new TextStyle({
+    fontFamily: "roboto",
+    fontSize: 20,
+  });
+
   const text = "x: " + x.toFixed(2) + "\ny: " + y.toFixed(2) + "\nq: " + q;
+
   return (
-    <Group x={x} y={-y}>
-      {is_hedge && (
-        <Text
-          x={-1}
-          y={-0.75}
-          fontSize={0.28}
-          fontFamily="roboto"
-          text={text}
-        />
-      )}
-      <Circle x={0} y={0} radius={0.1} fill={is_hedge ? "red" : "blue"} />
-    </Group>
+    <pixiContainer x={x * GLOBAL_SCALE} y={-y * GLOBAL_SCALE}>
+      <pixiGraphics
+        draw={(graphics) => {
+          graphics.clear();
+          graphics.setFillStyle({ color: is_hedge ? "red" : "blue" });
+          graphics.circle(0, 0, 10);
+          graphics.fill();
+        }}
+      />
+      <pixiText x={-70} y={-69} style={textStyle} text={text} resolution={2} />
+    </pixiContainer>
   );
 }
 
-// shift_x_m = -7.136
-// shift_y_m = 8.429
-// scale_pixels_per_m = 54.112
 function FloorPlan({
   x,
   y,
@@ -101,25 +104,7 @@ function FloorPlan({
   data: Uint8Array;
   ext: string;
 }) {
-  const [contextMenu, setContextMenu] = useState<{
-    mouseX: number;
-    mouseY: number;
-  } | null>(null);
-
-  const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null);
-
-  const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
-    e.evt.preventDefault();
-
-    setContextMenu(
-      contextMenu === null
-        ? {
-          mouseX: e.evt.clientX + 2,
-          mouseY: e.evt.clientY - 6,
-        }
-        : null,
-    );
-  };
+  const [texture, setTexture] = useState(Texture.EMPTY);
 
   useEffect(() => {
     if (!data?.length) return;
@@ -132,149 +117,140 @@ function FloorPlan({
       const blob = new Blob([buffer], { type: mime_type });
       const imageUrl = URL.createObjectURL(blob);
 
+      const img = new Image();
+
       try {
-        const img = new Image();
         img.src = imageUrl;
         await img.decode();
 
-        setPlanImage(img);
+        const texture = Texture.from(img);
+        setTexture(texture);
       } catch (error) {
         console.error("Image loading failed", error);
       } finally {
         URL.revokeObjectURL(imageUrl);
       }
+
+      return () => {
+        URL.revokeObjectURL(img.src);
+      };
     };
 
     createImage();
-
-    return () => {
-      if (planImage) {
-        URL.revokeObjectURL(planImage.src);
-      }
-    };
   }, [data, ext]);
 
   return (
     <>
-      {planImage && (
-        <KonvaImage
-          x={x}
-          y={y}
-          width={planImage.width / scale_pixels_per_m}
-          height={planImage.height / scale_pixels_per_m}
-          image={planImage}
-          onContextMenu={handleContextMenu}
+      {texture !== Texture.EMPTY && (
+        <pixiSprite
+          x={x * GLOBAL_SCALE}
+          y={y * GLOBAL_SCALE}
+          width={(texture.width / scale_pixels_per_m) * GLOBAL_SCALE}
+          height={(texture.height / scale_pixels_per_m) * GLOBAL_SCALE}
+          texture={texture}
         />
       )}
-      {/* <Html>
-        <Menu
-          open={contextMenu !== null}
-          onClose={handleMenuClose}
-          anchorReference="anchorPosition"
-          anchorPosition={
-            contextMenu !== null
-              ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-              : undefined
-          }
-          onContextMenu={(e) => e.preventDefault()}
-          onMouseDownCapture={(e) => {
-            if (e.button === 2) {
-              handleMenuClose();
-            }
-          }}
-          transitionDuration={0}
-        >
-          <MenuItem onClick={handleMenuClose}>Hello</MenuItem>
-          <MenuItem onClick={handleMenuClose}>World</MenuItem>
-        </Menu>
-      </Html> */}
     </>
   );
 }
 
-function VisualStage({ devices, plan }: { devices: Device[]; plan: Plan }) {
-  const refStage = useRef<Konva.Stage>(null);
+function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
+  const { app } = useApplication();
+
+  const refContainer = useRef<Container>(null);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
-    const stage = refStage.current;
-
-    const handleResize = () => {
-      stage?.setSize({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
+    const onDragStart = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      isDraggingRef.current = true;
     };
 
-    window.addEventListener("resize", handleResize);
+    const onDragMove = (event: MouseEvent) => {
+      if (event.button !== 0 || !refContainer.current) return;
+
+      if (!isDraggingRef.current) return;
+
+      const container = refContainer.current;
+
+      container.x = container.x + event.movementX;
+      container.y = container.y + event.movementY;
+    };
+
+    const onDragEnd = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      isDraggingRef.current = false;
+    };
+
+    app.canvas.addEventListener("mousedown", onDragStart);
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", onDragEnd);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      app.canvas.removeEventListener("mousedown", onDragStart);
+      window.removeEventListener("mousemove", onDragMove);
+      window.removeEventListener("mouseup", onDragEnd);
     };
   }, []);
 
   useEffect(() => {
-    const stage = refStage.current;
-    if (!stage) return;
+    if (!refContainer.current) return;
+    const container = refContainer.current;
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
 
       const scaleBy = 1.1;
-      const pointer = stage.getPointerPosition();
-      if (!pointer) return;
+      const pointerX = e.x - app.screen.x;
+      const pointerY = e.y - app.screen.y;
 
       requestAnimationFrame(() => {
-        const oldScale = stage.scaleX();
+        const oldScale = container.scale.x;
         const newScale = Math.max(
-          Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 150),
-          10
+          Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 10),
+          0.1,
         );
 
-        stage.position({
-          x: pointer.x - ((pointer.x - stage.x()) * newScale) / oldScale,
-          y: pointer.y - ((pointer.y - stage.y()) * newScale) / oldScale,
-        });
-        stage.scale({ x: newScale, y: newScale });
-        stage.batchDraw();
+        container.x =
+          pointerX - ((pointerX - container.x) * newScale) / oldScale;
+        container.y =
+          pointerY - ((pointerY - container.y) * newScale) / oldScale;
+        container.scale = newScale;
       });
     };
 
-    const throttledWheel = throttle(handleWheel, 50, { leading: true, trailing: false });
+    const throttledWheel = throttle(handleWheel, 50, {
+      leading: true,
+      trailing: false,
+    });
 
-    document.addEventListener("wheel", throttledWheel, { passive: false });
+    app.canvas.addEventListener("wheel", throttledWheel, { passive: false });
 
     return () => {
-      document.removeEventListener("wheel", throttledWheel);
+      app.canvas.removeEventListener("wheel", throttledWheel);
     };
   }, []);
 
   return (
-    <Stage
-      width={window.innerWidth}
-      height={window.innerHeight}
-      x={window.innerWidth / 2}
-      y={window.innerHeight / 2}
-      scaleX={70}
-      scaleY={70}
-      draggable
-      ref={refStage}
+    <pixiContainer
+      x={app.screen.width / 2}
+      y={app.screen.height / 2}
+      ref={refContainer}
     >
-      <Layer>
-        <FloorPlan
-          x={plan.x}
-          y={-plan.y}
-          scale_pixels_per_m={plan.scale_pixels_per_m}
-          data={plan.data}
-          ext={plan.ext}
+      <FloorPlan
+        x={plan.x}
+        y={-plan.y}
+        scale_pixels_per_m={plan.scale_pixels_per_m}
+        data={plan.data}
+        ext={plan.ext}
+      />
+      {devices.map((device) => (
+        <SensorMarker
+          key={`${device.address}-${device.x.toFixed(2)}-${device.y.toFixed(2)}`}
+          {...device}
         />
-        {devices.map((device) => (
-          <SensorMarker
-            key={`${device.address}-${device.x.toFixed(2)}-${device.y.toFixed(2)}`}
-            {...device}
-          />
-        ))}
-      </Layer>
-    </Stage>
+      ))}
+    </pixiContainer>
   );
 }
 
@@ -334,12 +310,11 @@ export default function App() {
             if (index !== -1) {
               const existing = prevDevices[index];
 
-              const deviceChanged = (
+              const deviceChanged =
                 Math.abs(existing.x - tr_device.x) > 0.01 ||
                 Math.abs(existing.y - tr_device.y) > 0.01 ||
                 existing.q !== tr_device.q ||
-                existing.is_hedge !== tr_device.is_hedge
-              );
+                existing.is_hedge !== tr_device.is_hedge;
               if (deviceChanged) {
                 newDevices[index] = tr_device;
                 hasChanged = true;
@@ -357,7 +332,7 @@ export default function App() {
 
     return () => {
       clearInterval(intervalId);
-    }
+    };
   }, []);
 
   const changeRecord = (_event: SyntheticEvent, checked: boolean) => {
@@ -371,7 +346,13 @@ export default function App() {
   return (
     <>
       {devices.length > 0 && plan && (
-        <VisualStage devices={devices} plan={plan} />
+        <Application
+          background={"#ffffffff"}
+          resizeTo={window}
+          antialias={true}
+        >
+          <PixiContainer devices={devices} plan={plan} />
+        </Application>
       )}
       <div
         style={{
