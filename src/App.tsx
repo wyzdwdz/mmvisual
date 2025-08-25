@@ -20,7 +20,6 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
-import { event } from "@tauri-apps/api";
 
 const GLOBAL_SCALE = 60;
 
@@ -86,10 +85,8 @@ function SensorMarker({
       event.preventDefault();
 
       if (event.key == "-") {
-        console.log(keyScale);
         setKeyScale((scale) => scale - 0.1);
       } else if (event.key == "+") {
-        console.log(keyScale);
         setKeyScale((scale) => scale + 0.1);
       }
     };
