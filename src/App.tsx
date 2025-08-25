@@ -13,15 +13,16 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { throttle } from "lodash";
 import mime from "mime";
-import { Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
-import { SyntheticEvent, useEffect, useRef, useState } from "react";
+import { Container, Graphics, Sprite, BitmapText, TextStyle, Texture } from "pixi.js";
+import { useEffect, useRef, useState } from "react";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import "./App.css";
+import { event } from "@tauri-apps/api";
 
-const GLOBAL_SCALE = 70;
+const GLOBAL_SCALE = 60;
 
 interface Plan {
   x: number;
@@ -54,8 +55,8 @@ const RedSwitch = styled(Switch)(({ theme }) => ({
 extend({
   Container,
   Sprite,
-  Text,
   Graphics,
+  BitmapText,
 });
 
 function SensorMarker({
@@ -63,30 +64,58 @@ function SensorMarker({
   y,
   q,
   is_hedge,
+  container_scale,
 }: {
   x: number;
   y: number;
   q: number;
   is_hedge: boolean;
+  container_scale: number;
 }) {
+  const [keyScale, setKeyScale] = useState(1);
+
   const textStyle = new TextStyle({
-    fontFamily: "roboto",
+    fontFamily: "Roboto",
     fontSize: 20,
   });
 
   const text = "x: " + x.toFixed(2) + "\ny: " + y.toFixed(2) + "\nq: " + q;
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+
+      if (event.key == "-") {
+        console.log(keyScale);
+        setKeyScale((scale) => scale - 0.1);
+      } else if (event.key == "+") {
+        console.log(keyScale);
+        setKeyScale((scale) => scale + 0.1);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    }
+  }, []);
+
   return (
-    <pixiContainer x={x * GLOBAL_SCALE} y={-y * GLOBAL_SCALE}>
+    <pixiContainer
+      x={x * GLOBAL_SCALE}
+      y={-y * GLOBAL_SCALE}
+      scale={1 / container_scale * keyScale}
+    >
       <pixiGraphics
         draw={(graphics) => {
           graphics.clear();
           graphics.setFillStyle({ color: is_hedge ? "red" : "blue" });
-          graphics.circle(0, 0, 10);
+          graphics.circle(0, 0, 8);
           graphics.fill();
         }}
       />
-      <pixiText x={-70} y={-69} style={textStyle} text={text} resolution={2} />
+      {is_hedge && <pixiBitmapText x={-70} y={-70} style={textStyle} text={text} />}
     </pixiContainer>
   );
 }
@@ -160,13 +189,19 @@ function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
   const refContainer = useRef<Container>(null);
   const isDraggingRef = useRef(false);
 
+  const [mouseScale, setMouseScale] = useState(1);
+
   useEffect(() => {
     const onDragStart = (event: MouseEvent) => {
+      event.preventDefault();
+
       if (event.button !== 0) return;
       isDraggingRef.current = true;
     };
 
     const onDragMove = (event: MouseEvent) => {
+      event.preventDefault();
+
       if (event.button !== 0 || !refContainer.current) return;
 
       if (!isDraggingRef.current) return;
@@ -178,6 +213,8 @@ function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
     };
 
     const onDragEnd = (event: MouseEvent) => {
+      event.preventDefault();
+
       if (event.button !== 0) return;
       isDraggingRef.current = false;
     };
@@ -200,7 +237,7 @@ function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
 
-      const scaleBy = 1.1;
+      const scaleBy = 1.15;
       const pointerX = e.x - app.screen.x;
       const pointerY = e.y - app.screen.y;
 
@@ -216,6 +253,8 @@ function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
         container.y =
           pointerY - ((pointerY - container.y) * newScale) / oldScale;
         container.scale = newScale;
+
+        setMouseScale(newScale);
       });
     };
 
@@ -247,6 +286,7 @@ function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
       {devices.map((device) => (
         <SensorMarker
           key={`${device.address}-${device.x.toFixed(2)}-${device.y.toFixed(2)}`}
+          container_scale={mouseScale}
           {...device}
         />
       ))}
@@ -335,7 +375,7 @@ export default function App() {
     };
   }, []);
 
-  const changeRecord = (_event: SyntheticEvent, checked: boolean) => {
+  const changeRecord = (_event: React.SyntheticEvent, checked: boolean) => {
     if (checked) {
       invoke("start_record");
     } else {
@@ -350,6 +390,8 @@ export default function App() {
           background={"#ffffffff"}
           resizeTo={window}
           antialias={true}
+          autoDensity={true}
+          resolution={window.devicePixelRatio}
         >
           <PixiContainer devices={devices} plan={plan} />
         </Application>
