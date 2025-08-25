@@ -72,10 +72,11 @@ function SensorMarker({
   container_scale: number;
 }) {
   const [keyScale, setKeyScale] = useState(1);
+  const refPixiContainer = useRef<Container>(null);
 
   const textStyle = new TextStyle({
     fontFamily: "Roboto",
-    fontSize: 20,
+    fontSize: 16,
   });
 
   const text = "x: " + x.toFixed(2) + "\ny: " + y.toFixed(2) + "\nq: " + q;
@@ -84,9 +85,12 @@ function SensorMarker({
     const onKeyDown = (event: KeyboardEvent) => {
       event.preventDefault();
 
-      if (event.key == "-") {
+      if(!refPixiContainer.current) return;
+      const container = refPixiContainer.current;
+
+      if (event.key == "-" && container.scale.x > 0.2) {
         setKeyScale((scale) => scale - 0.1);
-      } else if (event.key == "+") {
+      } else if (event.key == "+" && container.scale.x < 5) {
         setKeyScale((scale) => scale + 0.1);
       }
     };
@@ -102,17 +106,18 @@ function SensorMarker({
     <pixiContainer
       x={x * GLOBAL_SCALE}
       y={-y * GLOBAL_SCALE}
-      scale={1 / container_scale * keyScale}
+      scale={1 + keyScale}
+      ref={refPixiContainer}
     >
       <pixiGraphics
         draw={(graphics) => {
           graphics.clear();
           graphics.setFillStyle({ color: is_hedge ? "red" : "blue" });
-          graphics.circle(0, 0, 8);
+          graphics.circle(0, 0, 5);
           graphics.fill();
         }}
       />
-      {is_hedge && <pixiBitmapText x={-70} y={-70} style={textStyle} text={text} />}
+      {is_hedge && <pixiBitmapText x={-55} y={-55} style={textStyle} text={text} />}
     </pixiContainer>
   );
 }

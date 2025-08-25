@@ -6,7 +6,6 @@
 
 use std::{
     fs::File,
-    io::Write,
     path::PathBuf,
     sync::Mutex,
     thread::sleep,
@@ -14,11 +13,11 @@ use std::{
 };
 
 use anyhow::{Context, Error, Result};
+use chrono::{DateTime, Local};
+use csv::{Writer, WriterBuilder};
 use ini::Ini;
 use marvelmind as mm;
 use tauri::{async_runtime::spawn, AppHandle, Emitter, Manager};
-
-const LOG_PATH: &str = "log.csv";
 
 macro_rules! unwrap_or_return {
     ( $e:expr, $app:expr ) => {
@@ -54,7 +53,17 @@ struct TRPlan {
 struct AppState {
     is_mmrunning: bool,
     devices: Vec<TRDevice>,
-    savefile: Option<File>,
+    savefile: Option<Writer<File>>,
+}
+
+#[derive(serde::Serialize)]
+struct CsvRow {
+    address: u8,
+    x: i32,
+    y: i32,
+    z: i32,
+    q: u8,
+    t: u128,
 }
 
 fn mmrun(app: AppHandle) {
@@ -120,22 +129,18 @@ fn mmrun(app: AppHandle) {
                     }
 
                     savefile
-                        .write(
-                            format!(
-                                "{},{},{},{},{},{}\n",
-                                device.address(),
-                                device.x(),
-                                device.y(),
-                                device.z(),
-                                device.q(),
-                                device
-                                    .update_time()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_millis(),
-                            )
-                            .as_bytes(),
-                        )
+                        .serialize(CsvRow {
+                            address: device.address(),
+                            x: device.x(),
+                            y: device.y(),
+                            z: device.z(),
+                            q: device.q(),
+                            t: device
+                                .update_time()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis(),
+                        })
                         .unwrap();
 
                     prev_time = device.update_time();
@@ -193,10 +198,16 @@ fn start_record(app: AppHandle) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().unwrap();
 
-    state.savefile = Some(File::create(LOG_PATH).unwrap());
-    if let Some(savefile) = &mut state.savefile {
-        savefile.write("address,x,y,z,q,t\n".as_bytes()).unwrap();
-    }
+    let current_time = SystemTime::now();
+    let datetime: DateTime<Local> = current_time.into();
+
+    state.savefile = Some(
+        WriterBuilder::new()
+            .delimiter(b';')
+            .terminator(csv::Terminator::CRLF)
+            .from_path(format!("log-{}.csv", datetime.format("%Y-%m-%d-%H-%M-%S")))
+            .unwrap(),
+    );
 }
 
 #[tauri::command]
