@@ -76,7 +76,7 @@ function SensorMarker({
 
   const textStyle = new TextStyle({
     fontFamily: "Roboto",
-    fontSize: 16,
+    fontSize: 12,
   });
 
   const text = "x: " + x.toFixed(2) + "\ny: " + y.toFixed(2) + "\nq: " + q;
@@ -113,11 +113,11 @@ function SensorMarker({
         draw={(graphics) => {
           graphics.clear();
           graphics.setFillStyle({ color: is_hedge ? "red" : "blue" });
-          graphics.circle(0, 0, 5);
+          graphics.circle(0, 0, 4);
           graphics.fill();
         }}
       />
-      {is_hedge && <pixiBitmapText x={-55} y={-55} style={textStyle} text={text} />}
+      {!is_hedge && <pixiBitmapText x={-40} y={-40} style={textStyle} text={text} />}
     </pixiContainer>
   );
 }
