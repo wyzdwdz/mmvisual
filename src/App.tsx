@@ -117,7 +117,7 @@ function SensorMarker({
           graphics.fill();
         }}
       />
-      {!is_hedge && <pixiBitmapText x={-40} y={-40} style={textStyle} text={text} />}
+      {is_hedge && <pixiBitmapText x={-40} y={-40} style={textStyle} text={text} />}
     </pixiContainer>
   );
 }
