@@ -1,150 +1,189 @@
-// Copyright 2025 wyzdwdz <wyzdwdz@gmail.com>
-//
-// Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
-// This file may not be copied, modified, or distributed except according to
-// those terms.
-
-import { FormControlLabel, Switch } from "@mui/material";
-import { red } from "@mui/material/colors";
-import { alpha, styled } from "@mui/material/styles";
-import { Application, extend, useApplication } from "@pixi/react";
+import { Switch } from "@kobalte/core/switch";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { throttle } from "lodash";
 import mime from "mime";
-import { Container, Graphics, Sprite, BitmapText, TextStyle, Texture } from "pixi.js";
-import { useEffect, useRef, useState } from "react";
-import "@fontsource/roboto/300.css";
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
-import "./App.css";
+import { Container, TextStyle, Texture } from "pixi.js";
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
+import { Device, Plan } from "./Interface";
+import {
+  PixiApplication,
+  PixiBitmapText,
+  PixiContainer,
+  PixiGraphics,
+  PixiSprite,
+  useApplication,
+} from "./Pixi";
+import "@fontsource/fira-mono";
+import "./style.css";
 
 const GLOBAL_SCALE = 60;
 
-interface Plan {
-  x: number;
-  y: number;
-  scale_pixels_per_m: number;
-  data: Uint8Array;
-  ext: string;
-}
-
-interface Device {
-  address: number;
-  is_hedge: boolean;
-  x: number;
-  y: number;
-  q: number;
-}
-
-const RedSwitch = styled(Switch)(({ theme }) => ({
-  "& .MuiSwitch-switchBase.Mui-checked": {
-    color: red[800],
-    "&:hover": {
-      backgroundColor: alpha(red[800], theme.palette.action.hoverOpacity),
-    },
-  },
-  "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-    backgroundColor: red[800],
-  },
-}));
-
-extend({
-  Container,
-  Sprite,
-  Graphics,
-  BitmapText,
-});
-
-function SensorMarker({
-  x,
-  y,
-  q,
-  is_hedge,
-  container_scale,
-}: {
-  x: number;
-  y: number;
-  q: number;
-  is_hedge: boolean;
-  container_scale: number;
-}) {
-  const [keyScale, setKeyScale] = useState(1);
-  const refPixiContainer = useRef<Container>(null);
-
-  const textStyle = new TextStyle({
-    fontFamily: "Roboto",
-    fontSize: 12,
-  });
-
-  const text = "x: " + x.toFixed(2) + "\ny: " + y.toFixed(2) + "\nq: " + q;
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-
-      if(!refPixiContainer.current) return;
-      const container = refPixiContainer.current;
-
-      if (event.key == "-" && container.scale.x > 0.2) {
-        setKeyScale((scale) => scale - 0.1);
-      } else if (event.key == "+" && container.scale.x < 5) {
-        setKeyScale((scale) => scale + 0.1);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
+const RecordSwitch: Component<{}> = (_) => {
+  const changeRecord = (isChecked: boolean) => {
+    if (isChecked) {
+      invoke("start_record");
+    } else {
+      invoke("stop_record");
     }
-  }, []);
+  };
 
   return (
-    <pixiContainer
-      x={x * GLOBAL_SCALE}
-      y={-y * GLOBAL_SCALE}
-      scale={1 + keyScale}
-      ref={refPixiContainer}
-    >
-      <pixiGraphics
-        draw={(graphics) => {
-          graphics.clear();
-          graphics.setFillStyle({ color: is_hedge ? "red" : "blue" });
-          graphics.circle(0, 0, 4);
-          graphics.fill();
-        }}
-      />
-      {is_hedge && <pixiBitmapText x={-40} y={-40} style={textStyle} text={text} />}
-    </pixiContainer>
+    <>
+      <Switch
+        class="inline-flex items-center cursor-pointer"
+        onChange={changeRecord}
+      >
+        <Switch.Input class="sr-only peer" />
+        <Switch.Control
+          class="
+            relative w-11 h-6 bg-gray-200
+            peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 
+            rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full 
+            rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white 
+            after:content-[''] after:absolute after:top-[2px] after:start-[2px] 
+            after:bg-white after:border-gray-300 after:border after:rounded-full 
+            after:h-5 after:w-5 after:transition-all dark:border-gray-600 
+            peer-checked:bg-red-600 dark:peer-checked:bg-red-600
+          "
+        />
+        <Switch.Label class="ms-3 mb-1 text-m font-medium font-[Fira_Mono] text-gray-900 dark:text-gray-300">
+          Record
+        </Switch.Label>
+      </Switch>
+    </>
   );
-}
+};
 
-function FloorPlan({
-  x,
-  y,
-  scale_pixels_per_m,
-  data,
-  ext,
-}: {
+const MMStage: Component<{ devices: Device[]; plan: Plan }> = (props) => {
+  const app = useApplication();
+
+  let [refContainer, setRefContainer] = createSignal<Container | null>(null);
+  let isDragging = false;
+
+  const [mouseScale, setMouseScale] = createSignal(1);
+
+  createEffect(() => {
+    const onDragStart = (event: MouseEvent) => {
+      event.preventDefault();
+
+      if (event.button !== 0) return;
+      isDragging = true;
+    };
+
+    const onDragMove = (event: MouseEvent) => {
+      event.preventDefault();
+
+      if (event.button !== 0) return;
+
+      if (!isDragging) return;
+
+      if (!refContainer()) return;
+      const container = refContainer()!;
+
+      container.x = container.x + event.movementX;
+      container.y = container.y + event.movementY;
+    };
+
+    const onDragEnd = (event: MouseEvent) => {
+      event.preventDefault();
+
+      if (event.button !== 0) return;
+      isDragging = false;
+    };
+
+    app.canvas.addEventListener("mousedown", onDragStart);
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", onDragEnd);
+
+    return () => {
+      app.canvas.removeEventListener("mousedown", onDragStart);
+      window.removeEventListener("mousemove", onDragMove);
+      window.removeEventListener("mouseup", onDragEnd);
+    };
+  });
+
+  createEffect(() => {
+    if (!refContainer()) return;
+    const container = refContainer()!;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      const scaleBy = 1.15;
+      const pointerX = e.x - app.screen.x;
+      const pointerY = e.y - app.screen.y;
+
+      const oldScale = container.scale.x;
+      const newScale = Math.max(
+        Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 10),
+        0.1,
+      );
+
+      container.x = pointerX - ((pointerX - container.x) * newScale) / oldScale;
+      container.y = pointerY - ((pointerY - container.y) * newScale) / oldScale;
+      container.scale = newScale;
+
+      setMouseScale(newScale);
+    };
+
+    const throttledWheel = throttle(handleWheel, 50, {
+      leading: true,
+      trailing: false,
+    });
+
+    app.canvas.addEventListener("wheel", throttledWheel, { passive: false });
+
+    return () => {
+      app.canvas.removeEventListener("wheel", throttledWheel);
+    };
+  });
+
+  return (
+    <>
+      <PixiContainer
+        x={app.screen.width / 2}
+        y={app.screen.height / 2}
+        ref={setRefContainer}
+      >
+        <FloorPlan
+          x={props.plan.x}
+          y={-props.plan.y}
+          scale_pixels_per_m={props.plan.scale_pixels_per_m}
+          data={props.plan.data}
+          ext={props.plan.ext}
+        />
+        <For each={props.devices}>
+          {(device, _) => (
+            <SensorMarker container_scale={mouseScale()} {...device} />
+          )}
+        </For>
+      </PixiContainer>
+    </>
+  );
+};
+
+const FloorPlan: Component<{
   x: number;
   y: number;
   scale_pixels_per_m: number;
   data: Uint8Array;
   ext: string;
-}) {
-  const [texture, setTexture] = useState(Texture.EMPTY);
+}> = (props) => {
+  const [texture, setTexture] = createSignal(Texture.EMPTY);
 
-  useEffect(() => {
-    if (!data?.length) return;
+  createEffect(() => {
+    if (!props.data?.length) return;
 
-    const mime_type = mime.getType(ext);
+    const mime_type = mime.getType(props.ext);
     if (!mime_type) return;
 
     const createImage = async () => {
-      const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
+      const buffer =
+        props.data instanceof Uint8Array
+          ? props.data
+          : new Uint8Array(props.data);
       const blob = new Blob([buffer], { type: mime_type });
       const imageUrl = URL.createObjectURL(blob);
 
@@ -168,139 +207,94 @@ function FloorPlan({
     };
 
     createImage();
-  }, [data, ext]);
+  });
 
   return (
     <>
-      {texture !== Texture.EMPTY && (
-        <pixiSprite
-          x={x * GLOBAL_SCALE}
-          y={y * GLOBAL_SCALE}
-          width={(texture.width / scale_pixels_per_m) * GLOBAL_SCALE}
-          height={(texture.height / scale_pixels_per_m) * GLOBAL_SCALE}
-          texture={texture}
-        />
-      )}
+      <PixiSprite
+        x={props.x * GLOBAL_SCALE}
+        y={props.y * GLOBAL_SCALE}
+        width={(texture().width / props.scale_pixels_per_m) * GLOBAL_SCALE}
+        height={(texture().height / props.scale_pixels_per_m) * GLOBAL_SCALE}
+        texture={texture()}
+      />
     </>
   );
-}
+};
 
-function PixiContainer({ devices, plan }: { devices: Device[]; plan: Plan }) {
-  const { app } = useApplication();
+const SensorMarker: Component<{
+  x: number;
+  y: number;
+  q: number;
+  is_hedge: boolean;
+  container_scale: number;
+}> = (props) => {
+  const [keyScale, setKeyScale] = createSignal(1);
+  let [refContainer, setRefContainer] = createSignal<Container | null>(null);
 
-  const refContainer = useRef<Container>(null);
-  const isDraggingRef = useRef(false);
+  const textStyle = new TextStyle({
+    fontFamily: "Fira Mono",
+    fontSize: 12,
+  });
 
-  const [mouseScale, setMouseScale] = useState(1);
+  const text =
+    "x: " +
+    props.x.toFixed(2) +
+    "\ny: " +
+    props.y.toFixed(2) +
+    "\nq: " +
+    props.q;
 
-  useEffect(() => {
-    const onDragStart = (event: MouseEvent) => {
+  createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
       event.preventDefault();
 
-      if (event.button !== 0) return;
-      isDraggingRef.current = true;
+      if (!refContainer()) return;
+      const container = refContainer()!;
+
+      if (event.key == "-" && container.scale.x > 0.2) {
+        setKeyScale((scale) => scale - 0.1);
+      } else if (event.key == "+" && container.scale.x < 5) {
+        setKeyScale((scale) => scale + 0.1);
+      }
     };
 
-    const onDragMove = (event: MouseEvent) => {
-      event.preventDefault();
-
-      if (event.button !== 0 || !refContainer.current) return;
-
-      if (!isDraggingRef.current) return;
-
-      const container = refContainer.current;
-
-      container.x = container.x + event.movementX;
-      container.y = container.y + event.movementY;
-    };
-
-    const onDragEnd = (event: MouseEvent) => {
-      event.preventDefault();
-
-      if (event.button !== 0) return;
-      isDraggingRef.current = false;
-    };
-
-    app.canvas.addEventListener("mousedown", onDragStart);
-    window.addEventListener("mousemove", onDragMove);
-    window.addEventListener("mouseup", onDragEnd);
+    window.addEventListener("keydown", onKeyDown);
 
     return () => {
-      app.canvas.removeEventListener("mousedown", onDragStart);
-      window.removeEventListener("mousemove", onDragMove);
-      window.removeEventListener("mouseup", onDragEnd);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!refContainer.current) return;
-    const container = refContainer.current;
-
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-
-      const scaleBy = 1.15;
-      const pointerX = e.x - app.screen.x;
-      const pointerY = e.y - app.screen.y;
-
-      requestAnimationFrame(() => {
-        const oldScale = container.scale.x;
-        const newScale = Math.max(
-          Math.min(e.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy, 10),
-          0.1,
-        );
-
-        container.x =
-          pointerX - ((pointerX - container.x) * newScale) / oldScale;
-        container.y =
-          pointerY - ((pointerY - container.y) * newScale) / oldScale;
-        container.scale = newScale;
-
-        setMouseScale(newScale);
-      });
-    };
-
-    const throttledWheel = throttle(handleWheel, 50, {
-      leading: true,
-      trailing: false,
-    });
-
-    app.canvas.addEventListener("wheel", throttledWheel, { passive: false });
-
-    return () => {
-      app.canvas.removeEventListener("wheel", throttledWheel);
-    };
-  }, []);
+  });
 
   return (
-    <pixiContainer
-      x={app.screen.width / 2}
-      y={app.screen.height / 2}
-      ref={refContainer}
-    >
-      <FloorPlan
-        x={plan.x}
-        y={-plan.y}
-        scale_pixels_per_m={plan.scale_pixels_per_m}
-        data={plan.data}
-        ext={plan.ext}
-      />
-      {devices.map((device) => (
-        <SensorMarker
-          key={`${device.address}-${device.x.toFixed(2)}-${device.y.toFixed(2)}`}
-          container_scale={mouseScale}
-          {...device}
+    <>
+      <PixiContainer
+        x={props.x * GLOBAL_SCALE}
+        y={-props.y * GLOBAL_SCALE}
+        scale={1 + keyScale()}
+        ref={setRefContainer}
+      >
+        <PixiGraphics
+          draw={(graphics) => {
+            graphics.clear();
+            graphics.setFillStyle({ color: props.is_hedge ? "red" : "blue" });
+            graphics.circle(0, 0, 4);
+            graphics.fill();
+          }}
         />
-      ))}
-    </pixiContainer>
+        <Show when={props.is_hedge}>
+          <PixiBitmapText x={-50} y={-40} style={textStyle} text={text} />
+        </Show>
+      </PixiContainer>
+    </>
   );
-}
+};
 
-export default function App() {
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [plan, setPlan] = useState<Plan | null>(null);
+function App() {
+  const [devices, setDevices] = createSignal<Device[]>([]);
+  const [plan, setPlan] = createSignal<Plan | null>(null);
 
-  useEffect(() => {
+  createEffect(() => {
     const unlisten = listen<string>("log-message", (event) => {
       console.log(`Log: ${event.payload}`);
     });
@@ -308,9 +302,9 @@ export default function App() {
     return () => {
       unlisten.then((f) => f());
     };
-  }, []);
+  });
 
-  useEffect(() => {
+  createEffect(() => {
     const unlisten = getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type !== "drop") {
         return;
@@ -333,9 +327,9 @@ export default function App() {
     return () => {
       unlisten.then();
     };
-  }, []);
+  });
 
-  useEffect(() => {
+  createEffect(() => {
     const intervalId = setInterval(() => {
       invoke<Device[]>("read_devices").then((tr_devices) => {
         setDevices((prevDevices) => {
@@ -375,43 +369,34 @@ export default function App() {
     return () => {
       clearInterval(intervalId);
     };
-  }, []);
-
-  const changeRecord = (_event: React.SyntheticEvent, checked: boolean) => {
-    if (checked) {
-      invoke("start_record");
-    } else {
-      invoke("stop_record");
-    }
-  };
+  });
 
   return (
     <>
-      {devices.length > 0 && plan && (
-        <Application
+      <Show when={devices().length > 0 && plan()}>
+        <PixiApplication
           background={"#ffffffff"}
           resizeTo={window}
           antialias={true}
           autoDensity={true}
           resolution={window.devicePixelRatio}
         >
-          <PixiContainer devices={devices} plan={plan} />
-        </Application>
-      )}
+          <MMStage devices={devices()} plan={plan()!} />
+        </PixiApplication>
+      </Show>
       <div
         style={{
           position: "absolute",
-          top: "20px",
-          right: "20px",
-          zIndex: 10,
+          top: "30px",
+          right: "30px",
+          "z-index": 10,
         }}
+        class="scale-110"
       >
-        <FormControlLabel
-          control={<RedSwitch />}
-          label="Record"
-          onChange={changeRecord}
-        />
+        <RecordSwitch />
       </div>
     </>
   );
 }
+
+export default App;
