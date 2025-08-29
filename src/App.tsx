@@ -20,7 +20,7 @@ import "./style.css";
 
 const GLOBAL_SCALE = 60;
 
-const RecordSwitch: Component<{}> = (_) => {
+const RecordSwitch: Component<object> = () => {
   const changeRecord = (isChecked: boolean) => {
     if (isChecked) {
       invoke("start_record");
@@ -59,7 +59,7 @@ const RecordSwitch: Component<{}> = (_) => {
 const MMStage: Component<{ devices: Device[]; plan: Plan }> = (props) => {
   const app = useApplication();
 
-  let [refContainer, setRefContainer] = createSignal<Container | null>(null);
+  const [refContainer, setRefContainer] = createSignal<Container | null>(null);
   let isDragging = false;
 
   const [mouseScale, setMouseScale] = createSignal(1);
@@ -155,7 +155,7 @@ const MMStage: Component<{ devices: Device[]; plan: Plan }> = (props) => {
           ext={props.plan.ext}
         />
         <For each={props.devices}>
-          {(device, _) => (
+          {(device) => (
             <SensorMarker container_scale={mouseScale()} {...device} />
           )}
         </For>
@@ -230,7 +230,7 @@ const SensorMarker: Component<{
   container_scale: number;
 }> = (props) => {
   const [keyScale, setKeyScale] = createSignal(1);
-  let [refContainer, setRefContainer] = createSignal<Container | null>(null);
+  const [refContainer, setRefContainer] = createSignal<Container | null>(null);
 
   const textStyle = new TextStyle({
     fontFamily: "Fira Mono",
